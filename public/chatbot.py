@@ -5,8 +5,14 @@ hours, specialties, insurance, and public policies) using Gemini through
 clinic.gemini. It knows only what is on the public website: it has no access to
 patient records, schedules, or the portal.
 
+Tools: the assistant can call read-only lookup tools (public/chat_tools.py) to search
+the provider directory, find a provider's next opening, and check insurance. The
+loop in answer() runs the tools Gemini asks for and sends the results back until
+Gemini replies with text.
+
 LangSmith: when LANGSMITH_API_KEY is set, each visitor message is traced as a
-"website-chat" run, with the Gemini call nested inside it. Runs are tagged with an
+"website-chat" run. Inside it you'll see each Gemini call, and each tool call as
+its own step with its arguments and result. Runs are tagged with an
 anonymous conversation ID (a hash of the session key) so one conversation can be
 followed in LangSmith without sending the visitor's session key.
 """
@@ -22,10 +28,13 @@ from clinic import gemini
 from clinic.context_processors import PRACTICE
 from clinic.models import InsurancePlan, Office, PolicyDocument, Specialty
 
+from . import chat_tools
+
 logger = logging.getLogger("alderwick.chat")
 
 ROLE_USER = "user"
 ROLE_MODEL = "model"
+MAX_TOOL_ROUNDS = 5
 
 GUIDELINES = """You are the website assistant for {name}, a family medical group in the Salt Lake valley.
 
@@ -46,6 +55,8 @@ Rules:
   or the patient portal (/portal/).
 - Ask visitors not to share personal health information, dates of birth, or insurance
   member numbers in this chat.
+- Use your tools to look up providers, next available appointment times, and insurance
+  coverage instead of guessing. Include the provider's profile page link when you name one.
 - Keep answers short and friendly: two to four sentences, plain text, no markdown.
 
 PRACTICE INFORMATION
@@ -117,7 +128,23 @@ def answer(message, history):
 
     Raises gemini.GeminiError if Gemini is not configured or the call fails.
     """
-    return gemini.generate_text(_contents(history, message), system_instruction=system_instruction()).strip()
+    contents = _contents(history, message)
+    instruction = system_instruction()
+    for _ in range(MAX_TOOL_ROUNDS):
+        response = gemini.generate_content(contents, system_instruction=instruction, tools=chat_tools.GEMINI_TOOLS)
+        calls = response.function_calls or []
+        if not calls:
+            return (response.text or "").strip()
+        # Keep the model's turn (with its function calls) in the conversation, then add
+        # one function response per call, and ask Gemini again.
+        contents.append(response.candidates[0].content)
+        parts = []
+        for call in calls:
+            result = chat_tools.call_tool(call.name, dict(call.args or {}))
+            logger.info("chat_tool name=%s", call.name)
+            parts.append(types.Part.from_function_response(name=call.name, response={"result": result}))
+        contents.append(types.Content(role=ROLE_USER, parts=parts))
+    return "Sorry, I couldn't finish looking that up. Please call us at {main_phone}.".format(**PRACTICE)
 
 
 def reply_to(request, message):

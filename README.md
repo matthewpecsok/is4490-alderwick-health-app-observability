@@ -66,13 +66,14 @@ On your own computer, run `export GEMINI_API_KEY=...` before `runserver`. The `/
 
 Every page of the public site has a chat button in the bottom-right corner. Visitors can ask general questions about locations, hours, specialties, insurance, and policies. The assistant answers with Gemini, using the public website content as its only knowledge (`public/chatbot.py` builds that context from the database). It has no access to patient records, can't book appointments, and is told never to give medical advice and to send emergencies to 911.
 
+- **Tools.** The assistant can call three read-only tools in `public/chat_tools.py`: `search_providers` (by specialty, location, insurance, language, name, new patients, video visits), `next_available_appointment` (a provider's next opening), and `check_insurance` (whether a plan is accepted, by specialty). Gemini decides when to call them, and `chatbot.answer()` runs them and sends the results back. The tools only read public directory data and can't book anything. To add one, write the function, add a `FunctionDeclaration`, and register it in `TOOLS`.
 - Endpoint: `POST /chat/` with JSON `{"message": "..."}` returns `{"reply": "..."}`. `POST /chat/reset/` starts over.
 - The last 20 messages of each visitor's conversation are kept in their session (`CHAT_HISTORY_LIMIT` in settings).
 - Front end: `templates/includes/chat_widget.html` and `static/js/chat.js`.
 
 ## Tracing with LangSmith
 
-When a LangSmith key is present, every Gemini call is traced to [LangSmith](https://smith.langchain.com). `clinic/gemini.py` wraps the Gemini client with `langsmith.wrappers.wrap_gemini`, so each call is recorded with its prompt, reply, model, latency, and token usage. Each chat message also gets a parent `website-chat` run, tagged with an anonymous `conversation_id` so you can follow a whole conversation.
+When a LangSmith key is present, every Gemini call is traced to [LangSmith](https://smith.langchain.com). `clinic/gemini.py` wraps the Gemini client with `langsmith.wrappers.wrap_gemini`, so each call is recorded with its prompt, reply, model, latency, and token usage. Each chat message also gets a parent `website-chat` run, tagged with an anonymous `conversation_id` so you can follow a whole conversation. Inside it, the trace shows each step in order: the Gemini call that requested a tool, the tool run (`search_providers`, `next_available_appointment`, or `check_insurance`) with its arguments and result, and the Gemini call that wrote the final answer.
 
 1. Create an API key in LangSmith (**Settings → API Keys**).
 2. Add it as a Codespaces secret named `LANGSMITH_API_KEY`, the same way as `GEMINI_API_KEY`, and give it access to this repository.

@@ -80,18 +80,20 @@ def get_client():
     return client
 
 
-def generate_text(prompt, *, system_instruction=None, model=None):
-    """Send a prompt to Gemini and return the reply as a string.
+def generate_content(contents, *, system_instruction=None, tools=None, model=None):
+    """Send `contents` to Gemini and return the full response object.
 
-    `prompt` is usually a string. For a multi-turn conversation, pass a list of
-    google.genai.types.Content objects instead (see public/chatbot.py).
+    Use this when you need more than the text, for example function calls when
+    passing `tools` (see public/chatbot.py). Most features should use generate_text().
     """
     model = model or model_name()
-    config = types.GenerateContentConfig(system_instruction=system_instruction) if system_instruction else None
+    config = None
+    if system_instruction or tools:
+        config = types.GenerateContentConfig(system_instruction=system_instruction, tools=tools)
     client = get_client()
     started = time.monotonic()
     try:
-        response = client.models.generate_content(model=model, contents=prompt, config=config)
+        response = client.models.generate_content(model=model, contents=contents, config=config)
     except Exception as exc:
         logger.warning(
             "gemini_failed model=%s duration_ms=%.1f error=%s",
@@ -107,4 +109,14 @@ def generate_text(prompt, *, system_instruction=None, model=None):
             )
         raise GeminiError(message) from exc
     logger.info("gemini_call model=%s duration_ms=%.1f", model, (time.monotonic() - started) * 1000)
+    return response
+
+
+def generate_text(prompt, *, system_instruction=None, model=None):
+    """Send a prompt to Gemini and return the reply as a string.
+
+    `prompt` is usually a string. For a multi-turn conversation, pass a list of
+    google.genai.types.Content objects instead.
+    """
+    response = generate_content(prompt, system_instruction=system_instruction, model=model)
     return response.text or ""
