@@ -1,0 +1,27 @@
+{% load static %}
+<div class="chat-widget" id="chat-widget" data-chat-url="{% url 'public:chat' %}" data-reset-url="{% url 'public:chat_reset' %}">
+  <button class="chat-launcher" type="button" aria-expanded="false" aria-controls="chat-panel">
+    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg>
+    <span>Questions? Ask us</span>
+  </button>
+  <section class="chat-panel" id="chat-panel" role="dialog" aria-label="Alderwick website assistant" hidden>
+    <header class="chat-header">
+      <div><strong>Alderwick assistant</strong><small>Automated &middot; general questions only</small></div>
+      <div class="chat-header-actions">
+        <button class="chat-icon-btn" type="button" data-chat-reset title="Start over">New chat</button>
+        <button class="chat-icon-btn" type="button" data-chat-close aria-label="Close chat">&times;</button>
+      </div>
+    </header>
+    <p class="chat-notice">For a medical emergency, call 911. This assistant can't give medical advice. Please don't share personal health information here.</p>
+    <div class="chat-log" aria-live="polite">
+      <div class="chat-msg chat-msg-model">Hi! I can help with locations, hours, insurance, new-patient questions, and more. What can I help you with?</div>
+    </div>
+    <form class="chat-form">
+      {% csrf_token %}
+      <label class="sr-only" for="chat-input">Your question</label>
+      <input class="input" id="chat-input" name="message" maxlength="1000" autocomplete="off" placeholder="Type your question">
+      <button class="btn btn-sm" type="submit">Send</button>
+    </form>
+  </section>
+</div>
+<script src="{% static 'js/chat.js' %}" defer></script>

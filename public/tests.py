@@ -176,3 +176,85 @@ class AppointmentRequestFormTests(TestCase):
     def test_staff_can_use_public_form(self):
         self.client.force_login(make_user("front_office"))
         self.assertEqual(self.client.get(reverse("public:request_appointment")).status_code, 200)
+
+
+class ChatAssistantTests(TestCase):
+    """The website chat assistant. Gemini is mocked: tests never call the API or LangSmith."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.office = make_office(name="Alderwick Sandy Clinic", slug="sandy")
+        cls.plan = make_plan(name="SilverPeak PPO", code="silverpeak-ppo")
+        PolicyDocument.objects.create(
+            title="New Patient Policy", slug="new-patients", category="patient_policy", summary="s",
+            body="## Bring\n- Insurance card", effective_date=datetime.date(2026, 1, 1),
+        )
+        PolicyDocument.objects.create(
+            title="Internal memo", slug="internal", category="privacy", summary="s", body="secret-internal-text",
+            effective_date=datetime.date(2026, 1, 1), is_public=False,
+        )
+
+    def post(self, message):
+        return self.client.post(reverse("public:chat"), {"message": message}, content_type="application/json")
+
+    def test_widget_is_on_public_pages(self):
+        response = self.client.get(reverse("public:home"))
+        self.assertContains(response, 'id="chat-widget"')
+        self.assertContains(response, "call 911")
+
+    def test_reply_is_returned_and_history_kept(self):
+        from unittest import mock
+
+        with mock.patch("clinic.gemini.generate_text", return_value="We're open weekdays.") as generate:
+            first = self.post("When are you open?")
+            self.assertEqual(first.json(), {"reply": "We're open weekdays."})
+            self.post("And Saturdays?")
+        history = self.client.session["chat_history"]
+        self.assertEqual([turn["role"] for turn in history], ["user", "model", "user", "model"])
+        contents, kwargs = generate.call_args.args[0], generate.call_args.kwargs
+        self.assertEqual(len(contents), 3)  # two earlier turns plus the new question
+        self.assertEqual(contents[-1].parts[0].text, "And Saturdays?")
+        system = kwargs["system_instruction"]
+        self.assertIn("Alderwick Sandy Clinic", system)
+        self.assertIn("SilverPeak PPO", system)
+        self.assertIn("Insurance card", system)
+        self.assertNotIn("secret-internal-text", system)
+
+    def test_history_is_capped(self):
+        from unittest import mock
+
+        with self.settings(CHAT_HISTORY_LIMIT=4), mock.patch("clinic.gemini.generate_text", return_value="ok"):
+            for i in range(5):
+                self.post(f"question {i}")
+        history = self.client.session["chat_history"]
+        self.assertEqual(len(history), 4)
+        self.assertEqual(history[-2]["text"], "question 4")
+
+    def test_reset_clears_history(self):
+        from unittest import mock
+
+        with mock.patch("clinic.gemini.generate_text", return_value="ok"):
+            self.post("hello")
+        self.client.post(reverse("public:chat_reset"))
+        self.assertNotIn("chat_history", self.client.session)
+
+    def test_validation(self):
+        self.assertEqual(self.post("   ").status_code, 400)
+        self.assertEqual(self.post("x" * 1001).status_code, 400)
+        self.assertEqual(self.client.get(reverse("public:chat")).status_code, 405)
+
+    def test_gemini_failure_returns_friendly_error(self):
+        from unittest import mock
+
+        from clinic import gemini
+
+        with mock.patch("clinic.gemini.generate_text", side_effect=gemini.GeminiError("no key")):
+            response = self.post("hello")
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("unavailable", response.json()["error"])
+        self.assertNotIn("chat_history", self.client.session)
+
+    def test_langsmith_is_off_in_tests(self):
+        from clinic import gemini
+
+        self.assertFalse(gemini.langsmith_enabled())

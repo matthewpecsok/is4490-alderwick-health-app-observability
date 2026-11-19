@@ -3,12 +3,17 @@
   "image": "mcr.microsoft.com/devcontainers/python:3.12",
   "containerEnv": {
     "PYTHONUNBUFFERED": "1",
-    "GOOGLE_GENAI_USE_VERTEXAI": "true"
+    "GOOGLE_GENAI_USE_VERTEXAI": "true",
+    "LANGSMITH_PROJECT": "alderwick-health"
   },
   "secrets": {
     "GEMINI_API_KEY": {
       "description": "API key for Gemini (Google AI Studio or a GCP project). Used by clinic/gemini.py; test it at /dev/gemini/.",
       "documentationUrl": "https://ai.google.dev/gemini-api/docs/api-key"
+    },
+    "LANGSMITH_API_KEY": {
+      "description": "LangSmith API key (optional). When set, every Gemini call, including the website chat assistant, is traced to LangSmith.",
+      "documentationUrl": "https://docs.smith.langchain.com/administration/how_to_guides/organization_management/create_account_api_key"
     }
   },
   "updateContentCommand": "pip install --user -r requirements.txt",

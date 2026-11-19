@@ -10,6 +10,9 @@ set automatically in every Codespace for this repository:
                                which is what GCP project keys need; the Codespace sets this.
                                Unset or "false" sends them to the AI Studio endpoint
                                (generativelanguage.googleapis.com), for AI Studio keys.
+    LANGSMITH_API_KEY          LangSmith API key (optional). When set, every Gemini call is
+                               traced to LangSmith (see config/settings.py).
+    LANGSMITH_PROJECT          LangSmith project for the traces (optional, default "alderwick-health")
 
 Example, from any view or service:
 
@@ -23,7 +26,9 @@ Example, from any view or service:
     except gemini.GeminiError as exc:
         summary = None  # show a friendly message instead of crashing the page
 
-Prompts and replies are never written to the logs, only the model name and timing.
+Prompts and replies are never written to the application logs, only the model name and
+timing. When LangSmith tracing is on, prompts and replies ARE sent to LangSmith, which is
+another reason to use synthetic text only.
 """
 
 import logging
@@ -32,6 +37,8 @@ import time
 
 from google import genai
 from google.genai import types
+from langsmith import wrappers
+from langsmith.utils import tracing_is_enabled
 
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
 
@@ -54,17 +61,31 @@ def uses_vertex_ai():
     return os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "").lower() in ("1", "true")
 
 
+def langsmith_enabled():
+    """True when LangSmith tracing is configured (LANGSMITH_API_KEY set and tracing on)."""
+    return bool(os.environ.get("LANGSMITH_API_KEY")) and bool(tracing_is_enabled())
+
+
 def get_client():
     key = api_key()
     if not key:
         raise GeminiError(
             "GEMINI_API_KEY is not set. Add it as a GitHub Codespaces secret, then rebuild or restart the Codespace."
         )
-    return genai.Client(api_key=key, vertexai=uses_vertex_ai())
+    client = genai.Client(api_key=key, vertexai=uses_vertex_ai())
+    if langsmith_enabled():
+        # Every generate_content call on this client becomes an LLM run in LangSmith,
+        # with the prompt, reply, model, and token usage.
+        client = wrappers.wrap_gemini(client, chat_name="Gemini")
+    return client
 
 
 def generate_text(prompt, *, system_instruction=None, model=None):
-    """Send a text prompt to Gemini and return the reply as a string."""
+    """Send a prompt to Gemini and return the reply as a string.
+
+    `prompt` is usually a string. For a multi-turn conversation, pass a list of
+    google.genai.types.Content objects instead (see public/chatbot.py).
+    """
     model = model or model_name()
     config = types.GenerateContentConfig(system_instruction=system_instruction) if system_instruction else None
     client = get_client()

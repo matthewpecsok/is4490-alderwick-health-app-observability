@@ -109,6 +109,24 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 SESSION_COOKIE_AGE = 60 * 60 * 8  # one clinic shift
 
 # ---------------------------------------------------------------------------
+# LangSmith tracing for Gemini calls
+#
+# Add LANGSMITH_API_KEY as a Codespaces secret to turn tracing on. Traces go to
+# the LANGSMITH_PROJECT project (default "alderwick-health"). Set
+# LANGSMITH_TRACING=false to turn tracing off while keeping the key.
+# Tests never send traces.
+# ---------------------------------------------------------------------------
+if TESTING:
+    os.environ["LANGSMITH_TRACING"] = "false"
+elif os.environ.get("LANGSMITH_API_KEY"):
+    os.environ.setdefault("LANGSMITH_TRACING", "true")
+    os.environ.setdefault("LANGSMITH_PROJECT", "alderwick-health")
+
+# Website chat assistant: how many past messages are kept per visitor session.
+CHAT_HISTORY_LIMIT = 20
+CHAT_MESSAGE_MAX_LENGTH = 1000
+
+# ---------------------------------------------------------------------------
 # Logging
 #
 # Two log files are written to LOG_DIR:

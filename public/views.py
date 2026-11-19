@@ -1,13 +1,21 @@
+import json
+
+from django.conf import settings
 from django.core.paginator import Paginator
 from django.db.models import Count, Q
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.views.decorators.http import require_POST
 
 from audit.models import AuditLog
 from audit.utils import log_event
+from clinic import gemini
+from clinic.context_processors import PRACTICE
 from clinic.models import InsurancePlan, Office, PolicyDocument, Provider, Specialty
 from clinic.services import available_slots, next_available_slot
 
+from . import chatbot
 from .forms import AppointmentRequestForm
 
 
@@ -158,6 +166,34 @@ def request_thanks(request):
     if not reference:
         return redirect("public:request_appointment")
     return render(request, "public/request_thanks.html", {"reference": reference})
+
+
+@require_POST
+def chat(request):
+    """JSON endpoint for the website chat assistant: {"message": "..."} -> {"reply": "..."}."""
+    try:
+        message = str(json.loads(request.body or b"{}").get("message", "")).strip()
+    except (ValueError, AttributeError):
+        message = ""
+    if not message:
+        return JsonResponse({"error": "Please type a question."}, status=400)
+    if len(message) > settings.CHAT_MESSAGE_MAX_LENGTH:
+        return JsonResponse(
+            {"error": f"Please keep messages under {settings.CHAT_MESSAGE_MAX_LENGTH} characters."}, status=400
+        )
+    try:
+        reply = chatbot.reply_to(request, message)
+    except gemini.GeminiError:
+        return JsonResponse(
+            {"error": f"The assistant is unavailable right now. Please call us at {PRACTICE['main_phone']}."}, status=503
+        )
+    return JsonResponse({"reply": reply})
+
+
+@require_POST
+def chat_reset(request):
+    request.session.pop("chat_history", None)
+    return JsonResponse({"ok": True})
 
 
 def permission_denied(request, exception=None):

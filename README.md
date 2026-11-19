@@ -62,6 +62,30 @@ Optional environment variables:
 
 On your own computer, run `export GEMINI_API_KEY=...` before `runserver`. The `/dev/gemini/` page is not linked from the application and returns 404 when `DJANGO_DEBUG=0`. Send synthetic text only, never real patient information.
 
+## Website chat assistant
+
+Every page of the public site has a chat button in the bottom-right corner. Visitors can ask general questions about locations, hours, specialties, insurance, and policies. The assistant answers with Gemini, using the public website content as its only knowledge (`public/chatbot.py` builds that context from the database). It has no access to patient records, can't book appointments, and is told never to give medical advice and to send emergencies to 911.
+
+- Endpoint: `POST /chat/` with JSON `{"message": "..."}` returns `{"reply": "..."}`. `POST /chat/reset/` starts over.
+- The last 20 messages of each visitor's conversation are kept in their session (`CHAT_HISTORY_LIMIT` in settings).
+- Front end: `templates/includes/chat_widget.html` and `static/js/chat.js`.
+
+## Tracing with LangSmith
+
+When a LangSmith key is present, every Gemini call is traced to [LangSmith](https://smith.langchain.com). `clinic/gemini.py` wraps the Gemini client with `langsmith.wrappers.wrap_gemini`, so each call is recorded with its prompt, reply, model, latency, and token usage. Each chat message also gets a parent `website-chat` run, tagged with an anonymous `conversation_id` so you can follow a whole conversation.
+
+1. Create an API key in LangSmith (**Settings → API Keys**).
+2. Add it as a Codespaces secret named `LANGSMITH_API_KEY`, the same way as `GEMINI_API_KEY`, and give it access to this repository.
+3. Rebuild or restart the Codespace, then send a chat message. Traces show up in the `alderwick-health` project.
+
+| Variable | Purpose |
+|---|---|
+| `LANGSMITH_API_KEY` | Turns tracing on when set |
+| `LANGSMITH_PROJECT` | Project name for traces (the Codespace sets `alderwick-health`) |
+| `LANGSMITH_TRACING` | Set to `false` to turn tracing off without removing the key |
+
+Tracing sends prompts and replies to LangSmith, so keep everything synthetic. The test suite never sends traces.
+
 ## Demo data
 
 `seed_demo_data` loads the whole practice:
